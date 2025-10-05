@@ -192,6 +192,11 @@ async def monitor(zf = None):
     # have settled down
     elapsed = -120
 
+    # See if we can balance cells...
+    # If overnight charge is to between 90% and 99%, we actually want a
+    # slow solar charge to 100%, so try to get there before discharging.
+    waitfor100 = False
+
     await client.connect()
 
     # "%5d %6.1f %6.1f  %5d %6.1f %6.1f   %5d %5d %6.1f %6.1f  %s %s %d %d"
@@ -250,13 +255,19 @@ async def monitor(zf = None):
         soc = inverter.battery_percent
         ed = inverter.enable_discharge
 
+        if 500 <= hhmm <= 515 and 90 <= inverter.charge_target_soc_2 < 100:
+            # This is a trigger to try to get to 100
+            # Doing it this way avoids re-doing it if the script restarts:
+            # it only happens if the script was running at 5am
+            waitfor100 = True
+
         # The target_soc we want to maintain. Slot #3 until 4pm, 4 until 1930, 5 until 2200, 6 until 2300, 7 thereafter
 
         target_soc = (
             inverter.charge_target_soc_3 if hhmm < 1600 else
             inverter.charge_target_soc_4 if hhmm < 1930 else
             inverter.charge_target_soc_5 if hhmm < 2200 else
-            inverter.charge_target_soc_6 if hhmm < 2300 else
+            inverter.charge_target_soc_6 if hhmm < 2310 else
             inverter.charge_target_soc_7
         )
           
@@ -279,7 +290,16 @@ async def monitor(zf = None):
         # task 1: figure whether we want to allow (solar) charging, or export to grid
         # aim for soc == target_soc, but allow +/- 5% hysteresis
 
-        if hhmm > 2200 and soc > target_soc:
+        if waitfor100:
+            # we are trying to get to 100%
+            adjust_soc = 1
+            if soc == 100 or hhmm >= 1100 or soc < target_soc:
+                waitfor100 = False   # acheived, or give up
+        elif inverter.p_eps_backup > 0:
+            # from time to time the inverter rcd trips, so cant export.
+            # make sure we allow battery to charge
+            adjust_soc = 1
+        elif hhmm >= 2200 and soc > target_soc:
             # no hysteresis after 10pm
             adjust_soc = -1
         elif soc > target_soc + 5:
@@ -293,6 +313,7 @@ async def monitor(zf = None):
         elif soc >= target_soc - 5:
             if adjust_soc < 0: adjust_soc = 0  # stop discharging
         else:
+            # more than 5% below target - allow charging
             adjust_soc = 1
 
         # if we are charging/discharging and are approaching
@@ -478,11 +499,11 @@ async def monitor(zf = None):
                 elapsed = 0
                 client.execute(requests, timeout=2.0, retries=2, return_exceptions = True)
 
-        if not 600 < hhmm < 2200 and not hhmm < cells < hhmm+10:
+        batt = plant.batteries[0]
+        if (waitfor100 or not 600 < hhmm < 2300) and not hhmm < cells < hhmm+10:
             # record cell voltages every 10 mins between 10pm and 6am
             cells = hhmm
-            batt = plant.batteries[0]
-            _logger.info("%4d  BATT:" +  " %6.3f" * 16,
+            _logger.info("%4d  BATT:" +  " %6.3f" * 17,
                          hhmm,
                          batt.v_cell_01,
                          batt.v_cell_02,
@@ -500,7 +521,19 @@ async def monitor(zf = None):
                          batt.v_cell_14,
                          batt.v_cell_15,
                          batt.v_cell_16,
+                         batt.v_cells_sum
                          )
+
+        if waitfor100 and batt.v_cells_sum >= 54.5:
+            # once the battery approaches 55V, start checking individual cells.
+            # It's really the BMS's job, but it seems to allow one cell to exceed
+            # the recommended 3.65V
+            delay = 30
+            for c in range(1,17):
+                v = batt.get(f'v_cell_{c:0>2d}')
+                if v >= 3.62:
+                    _logger.info("cell %d is %.2f", c, v)
+                    waitfor100 = False
 
         # after all the effort to tune the delay, just fix it at
         # 30 while Daikin is using the ac info.
