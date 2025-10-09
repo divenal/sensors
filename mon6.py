@@ -289,8 +289,12 @@ async def monitor(zf = None):
 
         # task 1: figure whether we want to allow (solar) charging, or export to grid
         # aim for soc == target_soc, but allow +/- 5% hysteresis
-
-        if waitfor100:
+        # Charge slot #1 is reserved for one-off charging (eg during free session).
+        
+        if inverter.charge_slot_1_start <= hhmm <= inverter.charge_slot_1_end:
+            # don't fight external request to charge
+            adjust_soc = 1
+        elif waitfor100:
             # we are trying to get to 100%
             adjust_soc = 1
             if soc == 100 or hhmm >= 1100 or soc < target_soc:
@@ -418,19 +422,29 @@ async def monitor(zf = None):
             # actually charging
 
             zappi = sensors.load(Sensors.Zappi)
+            iog = sensors.load(Sensors.IOG)
             if zappi.status == 2 and zappi.mode == 3:
                 _logger.debug("charging in eco+ mode")
-                want_pause = 2                      # inhibit battery discharge
-                delay = 30  # don't want to miss the end
+                want_pause = 2   # inhibit battery discharge
+                want_eco = 1     # send excess solar to battery
+                delay = 30       # don't want to miss the end
                 if adjust_soc < 0: adjust_soc = 0   # don't force export
 
-            iog = sensors.load(Sensors.IOG)
-            if in_iog_slot(iog, now, hhmm):
+            elif in_iog_slot(iog, now, hhmm):
                 _logger.debug("inside IOG slot")
-                delay = 30  # don't want to miss the end
+                # but not actually charging the car.
+                # (Charging slot #1 might have been set.)
+                # Send solar to battery, and allow battery to cover consumption
+                # Basically want adjust_soc = 1  but we've already
+                # commited that above. TODO Perhaps all this should
+                # have been done earlier ???
+                want_eco = 1    # send solar to battery
+                want_pause = 0  # allow battery to cover consumption
+                delay = 30      # don't want to miss the end
                 if adjust_soc < 0: adjust_soc = 0   # don't force export
 
             elif iog.count > 0 and delay > 60:
+                # There are charging slots pending
                 # don't want to miss the start of a pending slot
                 delay = 60
 
@@ -534,7 +548,7 @@ async def monitor(zf = None):
                 if v >= 3.62:
                     _logger.info("cell %d is %.2f", c, v)
                     waitfor100 = False
-
+            
         # after all the effort to tune the delay, just fix it at
         # 30 while Daikin is using the ac info.
         # NOT NEEDED DURING THE SUMMER
