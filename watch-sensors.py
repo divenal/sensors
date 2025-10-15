@@ -3,10 +3,10 @@
 # Watch sensor timestamps to try to detect breaking scripts
 # And some other misc. alerts
 
-import signal
 import os
 import requests
 import time
+from signal import alarm
 
 from sensors import Sensors
 
@@ -52,7 +52,7 @@ def pretty(age):
         return "f{age:d} seconds"
 
 # The sensors we watch
-watchlist = (Sensors.Zappi, Sensors.Daikin, Sensors.GivEnergy, Sensors.IOG, Sensors.GreenerDays)
+watchlist = (Sensors.Zappi, Sensors.Daikin, Sensors.GivEnergy, Sensors.IOG, Sensors.GreenerDays, Sensors.Doit)
 
 for s in watchlist:
     s.notified = 0
@@ -68,6 +68,7 @@ Sensors.Daikin.update = 2100  # 35 mins
 Sensors.GivEnergy.update = 600
 Sensors.IOG.update = 4000
 Sensors.GreenerDays.update = 4*60*60*24
+Sensors.Doit.update = 300
 
 # A notifier for inverter tripping (non-zero eps)
 eps = Notifier(30*60)
@@ -148,7 +149,7 @@ def main():
     while True:
 
         # use alarm as a watchdog to stop script getting stuck somehow
-        signal.alarm(300)
+        alarm(300)
 
         now = time.time()
         for sc in watchlist:

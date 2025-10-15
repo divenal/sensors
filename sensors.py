@@ -12,7 +12,7 @@
 #  128   daikin heatpump
 #  160   /extra filesystem usage
 #  192   leaf battery
-
+#  224   doit dallas thermometers
 # generally first 4 bytes for each sensor are unix timestamp of last update
 
 import datetime
@@ -123,6 +123,7 @@ class Sensors:
 
     class Daikin(namedtuple("Daikin_",
                            "timestamp, outdoor, room_, target_, hw, lwt, offset")):
+        scale = 10
         fmt = "!LbbbBBb"
         offs= 128
 
@@ -145,6 +146,8 @@ class Sensors:
             tod = min(max(self.outdoor, self.X1), self.X2)
             return self.Y1 + (tod - self.X1)/(self.X2 - self.X1) * (self.Y2-self.Y1) + self.offset
 
+    ###############
+
     # Leaf - stores the SoC
     # Has two timestamps - when the server was last updated, and
     # when we last checked the server.
@@ -153,6 +156,7 @@ class Sensors:
     Leaf.fmt = "!LBL"
     Leaf.offs = 192
 
+    ###############
 
     # Octopus Greener Days forecast
     # Stores timestamp of first day, then 7 scores
@@ -161,6 +165,36 @@ class Sensors:
                              "timestamp, a, b, c, d, e, f, g")
     GreenerDays.offs = 224
     GreenerDays.fmt = "!L7B"
+
+    ###############
+
+    # doit sensor for dallas thermometers
+    # Readings seem to go up in steps of 0.0625 (1/16 of a degree),
+    # so multiply by 16 and store as a 16-bit int
+    #
+    class Doit(namedtuple("Doit_",
+                           "timestamp, flow_, back_, after_, out_")):
+        fmt = "!Lhhhh"
+        offs= 224
+
+        def encode(temp):
+            return int(temp * 16 + 0.5)
+
+        @property
+        def flow(self):
+            return 0.0625 * self.flow_
+
+        @property
+        def back(self):
+            return 0.0625 * self.back_
+
+        @property
+        def after(self):
+            return 0.0625 * self.after_
+
+        @property
+        def out(self):
+            return 0.0625 * self.out_
 
     #############################
 
@@ -192,7 +226,7 @@ if __name__ == "__main__":
 
     # sensors include an update timestamp, so show age of result
     now = int(datetime.datetime.now().timestamp())
-    for T in (Sensors.Zappi, Sensors.GivEnergy, Sensors.IOG, Sensors.Xaomi, Sensors.Leaf, Sensors.Daikin, Sensors.GreenerDays):
+    for T in (Sensors.Zappi, Sensors.GivEnergy, Sensors.IOG, Sensors.Xaomi, Sensors.Leaf, Sensors.Daikin, Sensors.GreenerDays, Sensors.Doit):
         t = s.load(T)
         age = now - t.timestamp
         if age > 7200:
