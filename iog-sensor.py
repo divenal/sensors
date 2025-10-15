@@ -7,6 +7,7 @@
 # 11 = 05:30
 # 47 = 23:30
 
+import signal
 import logging
 import gzip
 from datetime import datetime
@@ -129,6 +130,7 @@ def main():
 
     while True:
 
+        signal.alarm(3600)
         now = datetime.now()
         ts = int(now.timestamp())
         delta = ts - last

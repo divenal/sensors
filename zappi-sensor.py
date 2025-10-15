@@ -4,6 +4,7 @@ import datetime
 import gzip
 import logging
 import time
+from signal import alarm
 
 from myenergi import MyenergiApi
 from sensors import Sensors
@@ -38,6 +39,7 @@ def monitor():
 
     last_update = 0
     while True:
+        alarm(600)
         stat = myenergi.get('/cgi-jstatus-Z')
         zappi = stat['zappi'][0]
 

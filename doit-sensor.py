@@ -68,7 +68,8 @@ def record():
     
 # This is invoked for each sensor state change reported by the device
 def change_callback(state):
-    """Print the state changes of the device.."""
+    """Record state changes reported by the device.."""
+    alarm(600)    # reset watchdog
     id = doit.sensors[state.key]
     val = state.state
     if state.missing_state:
@@ -124,6 +125,7 @@ if __name__ == "__main__":
         print("usage: test2.py dest")
         sys.exit()
 
+    alarm(600)    # watchdog
     now = datetime.now()
     tstamp = now.strftime("%Y%m%d-%H%M")
     with gzip.open(filename="/tmp/doit." + tstamp + ".log.gz", mode="wt") as zf:

@@ -7,6 +7,7 @@ The power consumption comes from the zappi sensor
 """
 
 from datetime import datetime
+from signal import alarm
 import time
 import logging
 import gzip
@@ -42,6 +43,7 @@ def monitor():
 
     while True:
 
+        alarm(1800)  # watchdog
         mp = daikin.management_points()
         now = datetime.now()
 
