@@ -6,6 +6,7 @@
 import os
 import requests
 import time
+import datetime
 from signal import alarm
 
 from sensors import Sensors
@@ -25,7 +26,7 @@ class Notifier:
         self.interval = interval
 
 # Because any object can be a notifier, this isn't a member function
-def notify(notifier, now, msg, priority="4"):
+def notify(notifier, now, msg, priority=None):
     """Conditionally send a notification, updating notification time."""
 
     if notifier is not None:
@@ -38,6 +39,12 @@ def notify(notifier, now, msg, priority="4"):
     # This originally used givenergy notifications, but they're forbidding it now ?
     # Ah - no, I'd forgotten to update the API key !
     print(msg)
+    if priority is None:
+        # choose depending on time of day
+        d = datetime.datetime.fromtimestamp(now)
+        hhmm = d.hour * 100 + d.minute
+        priority = "4" if 700 < hhmm < 2230 else "3"
+
     requests.post("https://ntfy.sh/divenal14_sensors",
                   data=msg.encode(encoding='utf-8'),
                   headers={ "Tags": "warning", "Priority": priority })
@@ -85,6 +92,9 @@ zlock.old = 23
 hp = Notifier(10*60*60)
 hp.old = 0
 
+# Stash the first bonus charging slot here
+Sensors.IOG.first = 0
+
 # filesystem
 fs = Notifier(4*60*60)
 
@@ -100,11 +110,21 @@ def check_sensor(s, now):
 
 def check_zappi(sensors, now):
     zappi = sensors.load(Sensors.Zappi)
-    if zappi.status != zstatus.old:
+    old = zstatus.old
+    if zappi.status != old:
         if zappi.status < 0:
             notify(zstatus, now, "zappi has faulted ?")
         else:
             zstatus.notifed = 0
+
+        if zappi.status == 2 or old == 2:
+            # car has started or stopped charging
+            d = datetime.datetime.fromtimestamp(now)
+            hhmm = d.hour * 100 + d.minute
+            if 700 <= hhmm <= 2200:
+                notify(None, now,
+                       "zappi is charging" if zappi.status == 2 else "zappi stopped charging",
+                       "4")
         zstatus.old = zappi.status
 
     if zappi.lock != zlock.old:
@@ -124,6 +144,32 @@ def check_zappi(sensors, now):
             notify("hp has turned on ?")
         hp.old = zappi.hp
         
+def check_iog(sensors, now):
+    """Alert me about charging slots during the day."""
+    iog = sensors.load(Sensors.IOG)
+    old = Sensors.IOG.first
+    first = iog.s1 if iog.count >= 1 else 0
+    if first != old:
+        # something has changed. Figure out if its interesting
+        # IOG counts in half-hour periods, 0 = 00:00, 1 = 00:30, 47 = 23:30
+        # It doesn't store charging periods between 23:30 and 05:30
+        # Octopus only alerts about slots in the next 12 hours, I think,
+        d = datetime.datetime.fromtimestamp(now)
+        p = d.hour * 48 + d.minute // 30
+
+        if old > 22 and old < p:
+            old = 0    # a slot after 11am is in the past. Probably just dropped off the schedule ?
+
+        if old >= p and first == 0:
+            notify(None, now, f"charging slot in interval {old} cancelled")
+        elif first <= 14:
+            pass  # just ignore anything before 7am
+        elif first <= 22 and p >= 28:
+            pass  # it's after 2pm now, and first charging slot is before 11am, ie tomorrow morning
+        elif first >= p:
+            notify(None, now, f"bonus charging slot at interval {first}")
+        Sensors.IOG.first = first
+
 def check_ge(sensors, now):
     ge = sensors.load(Sensors.GivEnergy)
     if ge.eps > 0:
@@ -158,8 +204,8 @@ def main():
 
         check_zappi(sensors, now)
         check_ge(sensors, now)
+        check_iog(sensors, now)
         check_maple(now)
-
         time.sleep(30)
 
 if __name__ == "__main__":
