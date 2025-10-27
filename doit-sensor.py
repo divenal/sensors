@@ -11,6 +11,11 @@ from sensors import Sensors
 
 _logger = logging.getLogger(__name__)
 
+# The doit esp32 is monitoring two (sets of) sensors via esphome:
+#   dallas thermometers in airing cupboard
+#   xiaomi humidity thingy
+# We use aioesphomeapi to connect as a client to receive updates to these sensors.
+
 # We'll make a singleton of this, to store stuff we need
 
 class doit_class:
@@ -20,16 +25,20 @@ class doit_class:
 
         # readings arrive one at a time, so we need to collate them
         # seems to use the names, with space => _ rather than the id
-        self.temps = { "flow_from_hp": 20.0, "return_from_rads": 20.0, "after_valve": 20.0,"return_to_hp": 20.0 }
+        self.values = {
+            "flow_from_hp": 20.0, "return_from_rads": 20.0, "after_valve": 20.0,"return_to_hp": 20.0,
+            "pvvx_temperature": 20.0, "pvvx_humidity": 50.0, "pvvx_battery-voltage": 2.5, "pvvx_battery-level": 40.0
+            }
 
-        # use a set to recall which readings have been added since the last publish
-        self.updated = set()
+        # use set to recall which readings have been added since the last publish
+        self.flows = set()
+        self.pvvx = set()
 
 doit = doit_class()
 
 sensors = Sensors()
 
-def record():
+def record_flow():
     now = int(time.time())
     zappi = sensors.load(sensors.Zappi)
     daikin = sensors.load(sensors.Daikin)
@@ -44,7 +53,7 @@ def record():
     else:
         power = zappi.hp
 
-    t = doit.temps
+    t = doit.values
     flow = t['flow_from_hp']
     back = t['return_from_rads']
     after = t['after_valve']
@@ -65,7 +74,29 @@ def record():
                      Sensors.Doit.encode(after),
                      Sensors.Doit.encode(out))
     sensors.store(s)
-    
+
+def record_xiaomi():
+    now = int(time.time())
+
+    t = doit.values
+    temp = t['pvvx_temperature']
+    humid = t['pvvx_humidity']
+    voltage = t['pvvx_battery-voltage']
+    battery = t['pvvx_battery-level']
+    _logger.info(
+                "xiaomi temp=%.2f humidity=%.2f voltage=%.2f battery=%d%%",
+                temp,
+                humid,
+                voltage,
+                battery)
+
+    s = Sensors.Xiaomi(now,
+                       0,  # cycle not available ?
+                       Sensors.encode_rt(temp),
+                       int(humid),
+                       int(battery))
+    sensors.store(s)
+
 # This is invoked for each sensor state change reported by the device
 def change_callback(state):
     """Record state changes reported by the device.."""
@@ -77,13 +108,19 @@ def change_callback(state):
     elif isnan(val):
         _logger.warning("Nan for %s", id)
     else:
-        doit.temps[id] = val
-        doit.updated.add(id)
-        if len(doit.updated) == 4:
-            # we have the full set
-            record()
-            doit.updated.clear()
-
+        doit.values[id] = val
+        if id.startswith("pvvx"):
+            doit.pvvx.add(id)
+            if len(doit.pvvx) == 4:
+                # we have the full set
+                record_xiaomi()
+                doit.pvvx.clear()
+        else:
+            doit.flows.add(id)
+            if len(doit.flows) == 4:
+                # we have the full set
+                record_flow()
+                doit.flows.clear()
 
 async def main(dest):
     """Connect to an ESPHome device and get details."""
@@ -96,6 +133,7 @@ async def main(dest):
     entities = await api.list_entities_services()
     # entities is a list of arrays, or something ?  Only need the first one
     for e in entities[0]:
+        # print(f"key {e.key} = id {e.object_id}")
         doit.sensors[e.key] = e.object_id
 
     # Now we can subscribe to the state changes (spins off a task)

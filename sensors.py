@@ -8,7 +8,7 @@
 #    0   zappi
 #   32   givenergy
 #   64   Intelligent Octopus Go schedule
-#   96   xaiomi bluetooth thermometer
+#   96   xiaomi bluetooth thermometer
 #  128   daikin heatpump
 #  160   /extra filesystem usage
 #  192   leaf battery
@@ -99,7 +99,7 @@ class Sensors:
 
     ###############
 
-    # Xaomi bluetooth thermometer
+    # Xiaomi bluetooth thermometer
     # temperature and humidity available to 2dp, but since they're
     # not calibrated, not terribly meaningful
     # Store temp as signed delta from 20 degrees, in tenths.
@@ -108,7 +108,7 @@ class Sensors:
     # Use a subclass so we can use a property, and a create fn that will
     # do the encoding
 
-    class Xaomi(namedtuple("Xaiomi_",
+    class Xiaomi(namedtuple("Xiaomi_",
                            "timestamp, cycle, rt_, humidity, battery")):
         fmt = "!LBbBB"
         offs= 96
@@ -171,7 +171,8 @@ class Sensors:
     # doit sensor for dallas thermometers
     # Readings seem to go up in steps of 0.0625 (1/16 of a degree),
     # so multiply by 16 and store as a 16-bit int
-    #
+    # (doit also listens for xiaomi thermometer(s), but that goes in a separate sensor instance)
+
     class Doit(namedtuple("Doit_",
                            "timestamp, flow_, back_, after_, out_")):
         fmt = "!Lhhhh"
@@ -226,7 +227,7 @@ if __name__ == "__main__":
 
     # sensors include an update timestamp, so show age of result
     now = int(datetime.datetime.now().timestamp())
-    for T in (Sensors.Zappi, Sensors.GivEnergy, Sensors.IOG, Sensors.Xaomi, Sensors.Leaf, Sensors.Daikin, Sensors.GreenerDays, Sensors.Doit):
+    for T in (Sensors.Zappi, Sensors.GivEnergy, Sensors.IOG, Sensors.Xiaomi, Sensors.Leaf, Sensors.Daikin, Sensors.GreenerDays, Sensors.Doit):
         t = s.load(T)
         age = now - t.timestamp
         if age > 7200:
@@ -239,4 +240,5 @@ if __name__ == "__main__":
         print(t, " -- ", age)
     d = s.load(Sensors.Daikin)
     print(f"daikin room: {d.room:.1f}  targetlwt: {d.targetlwt:.1f}")
-
+    d = s.load(Sensors.Doit)
+    print(f"doit flow: {d.flow} return: {d.back}")
