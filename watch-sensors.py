@@ -38,10 +38,10 @@ def notify(notifier, now, msg, priority=None):
         
     # This originally used givenergy notifications, but they're forbidding it now ?
     # Ah - no, I'd forgotten to update the API key !
-    print(msg)
+    d = datetime.datetime.fromtimestamp(now)
+    print(d.isoformat(timespec='seconds'), msg)
     if priority is None:
         # choose depending on time of day
-        d = datetime.datetime.fromtimestamp(now)
         hhmm = d.hour * 100 + d.minute
         priority = "4" if 700 < hhmm < 2230 else "3"
 
@@ -151,23 +151,31 @@ def check_iog(sensors, now):
     first = iog.s1 if iog.count >= 1 else 0
     if first != old:
         # something has changed. Figure out if its interesting
-        # IOG counts in half-hour periods, 0 = 00:00, 1 = 00:30, 47 = 23:30
+        # IOG sensor counts in half-hour periods, 0 = 00:00, 1 = 00:30, 47 = 23:30
         # It doesn't store charging periods between 23:30 and 05:30
         # Octopus only alerts about slots in the next 12 hours, I think,
+        # (Octopus always schedule in UTC, but the IOG download stuff converts to local timezone.)
+        # *TODO: Perhaps consider the IOG day to run 11am to 11am, so for times less than 11am, add 24 hours.
+        # That makes it easier to tell whether a time is in the future or the past.
+
         d = datetime.datetime.fromtimestamp(now)
-        p = d.hour * 48 + d.minute // 30
+        p = d.hour * 2 + d.minute // 30
 
         if old > 22 and old < p:
             old = 0    # a slot after 11am is in the past. Probably just dropped off the schedule ?
 
         if old >= p and first == 0:
-            notify(None, now, f"charging slot in interval {old} cancelled")
+            oh = old // 2
+            om = (old & 1) * 30
+            notify(None, now, f"charging slot at {oh:02d}:{om:02d} cancelled")
         elif first <= 14:
             pass  # just ignore anything before 7am
         elif first <= 22 and p >= 28:
             pass  # it's after 2pm now, and first charging slot is before 11am, ie tomorrow morning
         elif first >= p:
-            notify(None, now, f"bonus charging slot at interval {first}")
+            fh = first // 2
+            fm = 30 * (first & 1)
+            notify(None, now, f"bonus charging slot at {fh:2d}:{fm:02d}")
         Sensors.IOG.first = first
 
 def check_ge(sensors, now):
