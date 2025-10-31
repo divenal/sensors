@@ -13,6 +13,8 @@
 #  160   /extra filesystem usage
 #  192   leaf battery
 #  224   doit dallas thermometers
+#  256   snoop zappi packets
+
 # generally first 4 bytes for each sensor are unix timestamp of last update
 
 import datetime
@@ -137,9 +139,9 @@ class Sensors:
 
         # weather curve
         X1 = -2
-        Y1 = 45
+        Y1 = 44
         X2 = 15
-        Y2 = 28
+        Y2 = 27
 
         @property
         def targetlwt(self):
@@ -198,7 +200,15 @@ class Sensors:
             return 0.0625 * self.out_
 
     #############################
+    
+    # Snoop - snoop zappi packets from ethernet
 
+    Snoop = namedtuple("Snoop", 'timestamp, grid, car, hp')
+    Snoop.fmt = "!Lhhh"
+    Snoop.offs = 256
+
+    #############################
+    
     # The sensor class proper
 
     def __init__(self, mode="rw"):
@@ -227,7 +237,7 @@ if __name__ == "__main__":
 
     # sensors include an update timestamp, so show age of result
     now = int(datetime.datetime.now().timestamp())
-    for T in (Sensors.Zappi, Sensors.GivEnergy, Sensors.IOG, Sensors.Xiaomi, Sensors.Leaf, Sensors.Daikin, Sensors.GreenerDays, Sensors.Doit):
+    for T in (Sensors.Zappi, Sensors.GivEnergy, Sensors.IOG, Sensors.Xiaomi, Sensors.Leaf, Sensors.Daikin, Sensors.GreenerDays, Sensors.Doit, Sensors.Snoop):
         t = s.load(T)
         age = now - t.timestamp
         if age > 7200:
